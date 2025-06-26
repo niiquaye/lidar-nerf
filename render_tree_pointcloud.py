@@ -43,7 +43,7 @@ def compute_ray_directions(H, W, fov_up=30.0, fov_down=-10.0):
 
     return directions
 
-def render_dense_point_cloud(model_path, base_xyz_file, H=128, W=1024, output_path="dense_output.xyz"):
+def render_dense_point_cloud(model_path, base_xyz_file, H=128, W=1024, output_path="dense_output.xyz"): # with H and W set to these numbers - this will up sample points till ~1k points
     base_points = np.loadtxt(base_xyz_file)
     _, _, mask = get_lidar_rays_from_xyz(base_points, H=H, W=W)
     directions = compute_ray_directions(H, W)
