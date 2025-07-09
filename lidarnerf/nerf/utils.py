@@ -696,6 +696,8 @@ class Trainer(object):
 
     def train_step(self, data):
         # Initialize all returned values
+        data = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in data.items()}
+
         pred_intensity = None
         gt_intensity = None
         pred_depth = None
@@ -711,7 +713,7 @@ class Trainer(object):
 
             gt_raydrop = images_lidar[:, :, 0]
             gt_intensity = images_lidar[:, :, 1] * gt_raydrop
-            gt_depth = images_lidar[:, :, 2] * gt_raydrop
+            # gt_depth = images_lidar[:, :, 2] * gt_raydrop
 
             outputs_lidar = self.model.render(
                 rays_o_lidar,
@@ -722,6 +724,25 @@ class Trainer(object):
                 force_all_rays=False if self.opt.patch_size == 1 else True,
                 **vars(self.opt),
             )
+            # Since your dataset only provides intensity and raydrop in image_lidar, there’s no depth channel in that tensor.
+
+            # But your model does return depth_lidar directly — you should use that instead.
+            gt_depth = outputs_lidar["depth_lidar"] * gt_raydrop
+
+            # print(f"🚨 render() returned keys: {list(outputs_lidar.keys())}")
+            # print(f"📏 depth_lidar: {outputs_lidar.get('depth_lidar')}")
+            # print(f"🟣 image_lidar: {outputs_lidar.get('image_lidar')}")
+
+            # Diagnostic check for missing keys
+            if not isinstance(outputs_lidar, dict):
+                raise ValueError(f"render() must return a dict, got {type(outputs_lidar)}")
+
+            required_keys = ["image_lidar", "depth_lidar"]
+            for key in required_keys:
+                if key not in outputs_lidar:
+                    raise ValueError(f"render() output missing key: {key}. Available: {list(outputs_lidar.keys())}")
+                if outputs_lidar[key] is None:
+                    raise ValueError(f"render() output key '{key}' is None")
 
             pred_raydrop = outputs_lidar["image_lidar"][:, :, 0]
             pred_intensity = outputs_lidar["image_lidar"][:, :, 1] * gt_raydrop
@@ -883,6 +904,102 @@ class Trainer(object):
             loss,
         )
 
+    # def eval_step(self, data):
+    #     pred_intensity = None
+    #     pred_depth = None
+    #     pred_depth_crop = None
+    #     pred_raydrop = None
+    #     gt_intensity = None
+    #     gt_depth = None
+    #     gt_depth_crop = None
+    #     gt_raydrop = None
+    #     loss = 0
+    #     if self.opt.enable_lidar:
+    #         rays_o_lidar = data["rays_o_lidar"]  # [B, N, 3]
+    #         rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
+    #         images_lidar = data["images_lidar"]  # [B, H, W, 3/4]
+
+    #         print(f"[eval_step] images_lidar shape: {images_lidar.shape}")
+
+    #         gt_raydrop = images_lidar[:, :, 0] # images_lidar[:, :, :, 0]
+    #         if self.opt.dataloader == "nerf_mvl":
+    #             valid_crop = gt_raydrop != -1
+    #             valid_crop_idx = torch.nonzero(valid_crop)
+    #             crop_h, crop_w = (
+    #                 max(valid_crop_idx[:, 1]) - min(valid_crop_idx[:, 1]) + 1,
+    #                 max(valid_crop_idx[:, 2]) - min(valid_crop_idx[:, 2]) + 1,
+    #             )
+
+    #             valid_mask = torch.where(gt_raydrop == -1, 0, 1)
+    #             gt_raydrop = gt_raydrop * valid_mask
+
+    #         gt_intensity = images_lidar[:, :, 1] * gt_raydrop
+    #         B_lidar, H_lidar, W_lidar, C_lidar = images_lidar.shape
+
+    #         outputs_lidar = self.model.render(
+    #             rays_o_lidar,
+    #             rays_d_lidar,
+    #             cal_lidar_color=True,
+    #             staged=True,
+    #             perturb=False,
+    #             **vars(self.opt),
+    #         )
+
+    #         gt_depth = outputs_lidar["depth_lidar"] * gt_raydrop
+
+    #         pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(
+    #             B_lidar, H_lidar, W_lidar, 2
+    #         )
+    #         pred_raydrop = pred_rgb_lidar[:, :, :, 0]
+    #         raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
+    #         if self.opt.dataloader == "nerf_mvl":
+    #             raydrop_mask = raydrop_mask * valid_mask
+    #         pred_intensity = pred_rgb_lidar[:, :, :, 1]
+    #         pred_depth = outputs_lidar["depth_lidar"].reshape(B_lidar, H_lidar, W_lidar)
+    #         # raydrop_mask = gt_raydrop  # TODO
+    #         if self.opt.alpha_r > 0 and (not torch.all(raydrop_mask == 0)):
+    #             pred_intensity = pred_intensity * raydrop_mask
+    #             pred_depth = pred_depth * raydrop_mask
+
+    #         lidar_loss = (
+    #             self.opt.alpha_d * self.criterion["depth"](pred_depth, gt_depth).mean()
+    #             + self.opt.alpha_r
+    #             * self.criterion["raydrop"](pred_raydrop, gt_raydrop).mean()
+    #             + self.opt.alpha_i
+    #             * self.criterion["intensity"](pred_intensity, gt_intensity).mean()
+    #         )
+
+    #         if self.opt.dataloader == "nerf_mvl":
+    #             pred_intensity = pred_intensity[valid_crop].reshape(
+    #                 B_lidar, crop_h, crop_w
+    #             )
+    #             gt_intensity = gt_intensity[valid_crop].reshape(B_lidar, crop_h, crop_w)
+    #             pred_depth_crop = pred_depth[valid_crop].reshape(
+    #                 B_lidar, crop_h, crop_w
+    #             )
+    #             gt_depth_crop = gt_depth[valid_crop].reshape(B_lidar, crop_h, crop_w)
+
+    #         pred_intensity = pred_intensity.unsqueeze(-1)
+    #         pred_raydrop = pred_raydrop.unsqueeze(-1)
+    #         gt_intensity = gt_intensity.unsqueeze(-1)
+    #         gt_raydrop = gt_raydrop.unsqueeze(-1)
+    #     else:
+    #         lidar_loss = 0
+
+    #     loss = lidar_loss
+
+    #     return (
+    #         pred_intensity,
+    #         pred_depth,
+    #         pred_depth_crop,
+    #         pred_raydrop,
+    #         gt_intensity,
+    #         gt_depth,
+    #         gt_depth_crop,
+    #         gt_raydrop,
+    #         loss,
+    #     )
+
     def eval_step(self, data):
         pred_intensity = None
         pred_depth = None
@@ -893,26 +1010,17 @@ class Trainer(object):
         gt_depth_crop = None
         gt_raydrop = None
         loss = 0
+
         if self.opt.enable_lidar:
             rays_o_lidar = data["rays_o_lidar"]  # [B, N, 3]
             rays_d_lidar = data["rays_d_lidar"]  # [B, N, 3]
-            images_lidar = data["images_lidar"]  # [B, H, W, 3/4]
+            images_lidar = data["images_lidar"]  # [B, N, 3]
 
-            gt_raydrop = images_lidar[:, :, :, 0]
-            if self.opt.dataloader == "nerf_mvl":
-                valid_crop = gt_raydrop != -1
-                valid_crop_idx = torch.nonzero(valid_crop)
-                crop_h, crop_w = (
-                    max(valid_crop_idx[:, 1]) - min(valid_crop_idx[:, 1]) + 1,
-                    max(valid_crop_idx[:, 2]) - min(valid_crop_idx[:, 2]) + 1,
-                )
+            print(f"[eval_step] images_lidar shape: {images_lidar.shape}")
+            B_lidar, N_lidar, C_lidar = images_lidar.shape
 
-                valid_mask = torch.where(gt_raydrop == -1, 0, 1)
-                gt_raydrop = gt_raydrop * valid_mask
-
-            gt_intensity = images_lidar[:, :, :, 1] * gt_raydrop
-            gt_depth = images_lidar[:, :, :, 2] * gt_raydrop
-            B_lidar, H_lidar, W_lidar, C_lidar = images_lidar.shape
+            gt_raydrop = images_lidar[:, :, 0]
+            gt_intensity = images_lidar[:, :, 1] * gt_raydrop
 
             outputs_lidar = self.model.render(
                 rays_o_lidar,
@@ -923,37 +1031,24 @@ class Trainer(object):
                 **vars(self.opt),
             )
 
-            pred_rgb_lidar = outputs_lidar["image_lidar"].reshape(
-                B_lidar, H_lidar, W_lidar, 2
-            )
-            pred_raydrop = pred_rgb_lidar[:, :, :, 0]
+            gt_depth = outputs_lidar["depth_lidar"] * gt_raydrop
+
+            pred_rgb_lidar = outputs_lidar["image_lidar"]  # [B, N, 2]
+            pred_raydrop = pred_rgb_lidar[:, :, 0]
             raydrop_mask = torch.where(pred_raydrop > 0.5, 1, 0)
-            if self.opt.dataloader == "nerf_mvl":
-                raydrop_mask = raydrop_mask * valid_mask
-            pred_intensity = pred_rgb_lidar[:, :, :, 1]
-            pred_depth = outputs_lidar["depth_lidar"].reshape(B_lidar, H_lidar, W_lidar)
-            # raydrop_mask = gt_raydrop  # TODO
+
             if self.opt.alpha_r > 0 and (not torch.all(raydrop_mask == 0)):
-                pred_intensity = pred_intensity * raydrop_mask
-                pred_depth = pred_depth * raydrop_mask
+                pred_intensity = pred_rgb_lidar[:, :, 1] * raydrop_mask
+                pred_depth = outputs_lidar["depth_lidar"] * raydrop_mask
+            else:
+                pred_intensity = pred_rgb_lidar[:, :, 1]
+                pred_depth = outputs_lidar["depth_lidar"]
 
             lidar_loss = (
                 self.opt.alpha_d * self.criterion["depth"](pred_depth, gt_depth).mean()
-                + self.opt.alpha_r
-                * self.criterion["raydrop"](pred_raydrop, gt_raydrop).mean()
-                + self.opt.alpha_i
-                * self.criterion["intensity"](pred_intensity, gt_intensity).mean()
+                + self.opt.alpha_r * self.criterion["raydrop"](pred_raydrop, gt_raydrop).mean()
+                + self.opt.alpha_i * self.criterion["intensity"](pred_intensity, gt_intensity).mean()
             )
-
-            if self.opt.dataloader == "nerf_mvl":
-                pred_intensity = pred_intensity[valid_crop].reshape(
-                    B_lidar, crop_h, crop_w
-                )
-                gt_intensity = gt_intensity[valid_crop].reshape(B_lidar, crop_h, crop_w)
-                pred_depth_crop = pred_depth[valid_crop].reshape(
-                    B_lidar, crop_h, crop_w
-                )
-                gt_depth_crop = gt_depth[valid_crop].reshape(B_lidar, crop_h, crop_w)
 
             pred_intensity = pred_intensity.unsqueeze(-1)
             pred_raydrop = pred_raydrop.unsqueeze(-1)
@@ -1110,7 +1205,7 @@ class Trainer(object):
                 if self.opt.enable_lidar:
                     pred_raydrop = preds_raydrop[0].detach().cpu().numpy()
                     pred_raydrop = (np.where(pred_raydrop > 0.5, 1.0, 0.0)).reshape(
-                        loader._data.H_lidar, loader._data.W_lidar
+                        loader.dataset.H_lidar, loader.dataset.W_lidar
                     )
                     pred_raydrop = (pred_raydrop * 255).astype(np.uint8)
 
@@ -1279,6 +1374,173 @@ class Trainer(object):
 
         self.log(f"==> Finished Epoch {self.epoch}.")
 
+    # def evaluate_one_epoch(self, loader, name=None):
+    #     self.log(f"++> Evaluate at epoch {self.epoch} ...")
+
+    #     if name is None:
+    #         name = f"{self.name}_ep{self.epoch:04d}"
+
+    #     total_loss = 0
+    #     if self.local_rank == 0:
+    #         for metric in self.metrics:
+    #             metric.clear()
+    #         for metric in self.depth_metrics:
+    #             metric.clear()
+
+    #     self.model.eval()
+
+    #     if self.ema is not None:
+    #         self.ema.store()
+    #         self.ema.copy_to()
+
+    #     if self.local_rank == 0:
+    #         pbar = tqdm.tqdm(
+    #             total=len(loader) * loader.batch_size,
+    #             bar_format="{desc}: {percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+    #         )
+
+    #     with torch.no_grad():
+    #         self.local_step = 0
+
+    #         for data in loader:
+    #             self.local_step += 1
+
+    #             with torch.cuda.amp.autocast(enabled=self.fp16):
+    #                 (
+    #                     preds_intensity,
+    #                     preds_depth,
+    #                     preds_depth_crop,
+    #                     preds_raydrop,
+    #                     gt_intensity,
+    #                     gt_depth,
+    #                     gt_depth_crop,
+    #                     gt_raydrop,
+    #                     loss,
+    #                 ) = self.eval_step(data)
+
+    #             # all_gather/reduce the statistics (NCCL only support all_*)
+    #             if self.world_size > 1:
+    #                 dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+    #                 loss = loss / self.world_size
+
+    #                 preds_list = [
+    #                     torch.zeros_like(preds).to(self.device)
+    #                     for _ in range(self.world_size)
+    #                 ]  # [[B, ...], [B, ...], ...]
+    #                 dist.all_gather(preds_list, preds)
+    #                 preds = torch.cat(preds_list, dim=0)
+
+    #                 preds_depth_list = [
+    #                     torch.zeros_like(preds_depth).to(self.device)
+    #                     for _ in range(self.world_size)
+    #                 ]  # [[B, ...], [B, ...], ...]
+    #                 dist.all_gather(preds_depth_list, preds_depth)
+    #                 preds_depth = torch.cat(preds_depth_list, dim=0)
+
+    #                 truths_list = [
+    #                     torch.zeros_like(truths).to(self.device)
+    #                     for _ in range(self.world_size)
+    #                 ]  # [[B, ...], [B, ...], ...]
+    #                 dist.all_gather(truths_list, truths)
+    #                 truths = torch.cat(truths_list, dim=0)
+
+    #             loss_val = loss.item()
+    #             total_loss += loss_val
+
+    #             # only rank = 0 will perform evaluation.
+    #             if self.local_rank == 0:
+    #                 for i, metric in enumerate(self.depth_metrics):
+    #                     if i < 2:  # hard code
+    #                         metric.update(preds_intensity, gt_intensity)
+    #                     else:
+    #                         if (
+    #                             self.opt.dataloader == "nerf_mvl" and i == 2
+    #                         ):  # hard code
+    #                             metric.update(preds_depth_crop, gt_depth_crop)
+    #                         else:
+    #                             metric.update(preds_depth, gt_depth)
+
+    #                 if self.opt.enable_lidar:
+    #                     save_path_raydrop = os.path.join(
+    #                         self.workspace,
+    #                         "validation",
+    #                         f"{name}_{self.local_step:04d}_rarydrop.png",
+    #                     )
+    #                     save_path_intensity = os.path.join(
+    #                         self.workspace,
+    #                         "validation",
+    #                         f"{name}_{self.local_step:04d}_intensity.png",
+    #                     )
+    #                     save_path_depth = os.path.join(
+    #                         self.workspace,
+    #                         "validation",
+    #                         f"{name}_{self.local_step:04d}_depth.png",
+    #                     )
+    #                     os.makedirs(os.path.dirname(save_path_depth), exist_ok=True)
+
+    #                     pred_intensity = preds_intensity[0].detach().cpu().numpy()
+    #                     pred_intensity = (pred_intensity * 255).astype(np.uint8)
+
+    #                     pred_raydrop = preds_raydrop[0].detach().cpu().numpy()
+    #                     pred_raydrop = (np.where(pred_raydrop > 0.5, 1.0, 0.0)).reshape(
+    #                         loader.dataset.H_lidar, loader.dataset.W_lidar
+    #                     )
+    #                     pred_raydrop = (pred_raydrop * 255).astype(np.uint8)
+
+    #                     pred_depth = preds_depth[0].detach().cpu().numpy()
+    #                     pred_lidar = pano_to_lidar(
+    #                         pred_depth / self.opt.scale, loader._data.intrinsics_lidar
+    #                     )
+    #                     pred_depth = (pred_depth * 255).astype(np.uint8)
+    #                     # pred_depth = (pred_depth / self.opt.scale).astype(np.uint8)
+
+    #                     # cv2.imwrite(save_path, cv2.cvtColor(pred, cv2.COLOR_RGB2BGR))
+    #                     cv2.imwrite(save_path_raydrop, pred_raydrop)
+    #                     cv2.imwrite(
+    #                         save_path_intensity, cv2.applyColorMap(pred_intensity, 1)
+    #                     )
+    #                     cv2.imwrite(save_path_depth, cv2.applyColorMap(pred_depth, 9))
+    #                     np.save(
+    #                         os.path.join(
+    #                             self.workspace,
+    #                             "validation",
+    #                             f"{name}_{self.local_step:04d}_lidar.npy",
+    #                         ),
+    #                         pred_lidar,
+    #                     )
+
+    #                 pbar.set_description(
+    #                     f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})"
+    #                 )
+    #                 pbar.update(loader.batch_size)
+
+    #     average_loss = total_loss / self.local_step
+    #     self.stats["valid_loss"].append(average_loss)
+
+    #     if self.local_rank == 0:
+    #         pbar.close()
+    #         if len(self.depth_metrics) > 0:
+    #             # result = self.metrics[0].measure()
+    #             result = self.depth_metrics[-1].measure()[0]  # hard code
+    #             self.stats["results"].append(
+    #                 result if self.best_mode == "min" else -result
+    #             )  # if max mode, use -result
+    #         else:
+    #             self.stats["results"].append(
+    #                 average_loss
+    #             )  # if no metric, choose best by min loss
+
+    #         for metric in self.depth_metrics:
+    #             self.log(metric.report(), style="blue")
+    #             if self.use_tensorboardX:
+    #                 metric.write(self.writer, self.epoch, prefix="LiDAR_evaluate")
+    #             metric.clear()
+
+    #     if self.ema is not None:
+    #         self.ema.restore()
+
+    #     self.log(f"++> Evaluate epoch {self.epoch} Finished.")
+
     def evaluate_one_epoch(self, loader, name=None):
         self.log(f"++> Evaluate at epoch {self.epoch} ...")
 
@@ -1323,44 +1585,26 @@ class Trainer(object):
                         loss,
                     ) = self.eval_step(data)
 
-                # all_gather/reduce the statistics (NCCL only support all_*)
                 if self.world_size > 1:
                     dist.all_reduce(loss, op=dist.ReduceOp.SUM)
                     loss = loss / self.world_size
 
-                    preds_list = [
-                        torch.zeros_like(preds).to(self.device)
-                        for _ in range(self.world_size)
-                    ]  # [[B, ...], [B, ...], ...]
-                    dist.all_gather(preds_list, preds)
-                    preds = torch.cat(preds_list, dim=0)
-
                     preds_depth_list = [
                         torch.zeros_like(preds_depth).to(self.device)
                         for _ in range(self.world_size)
-                    ]  # [[B, ...], [B, ...], ...]
+                    ]
                     dist.all_gather(preds_depth_list, preds_depth)
                     preds_depth = torch.cat(preds_depth_list, dim=0)
-
-                    truths_list = [
-                        torch.zeros_like(truths).to(self.device)
-                        for _ in range(self.world_size)
-                    ]  # [[B, ...], [B, ...], ...]
-                    dist.all_gather(truths_list, truths)
-                    truths = torch.cat(truths_list, dim=0)
 
                 loss_val = loss.item()
                 total_loss += loss_val
 
-                # only rank = 0 will perform evaluation.
                 if self.local_rank == 0:
                     for i, metric in enumerate(self.depth_metrics):
-                        if i < 2:  # hard code
+                        if i < 2:
                             metric.update(preds_intensity, gt_intensity)
                         else:
-                            if (
-                                self.opt.dataloader == "nerf_mvl" and i == 2
-                            ):  # hard code
+                            if self.opt.dataloader == "nerf_mvl" and i == 2:
                                 metric.update(preds_depth_crop, gt_depth_crop)
                             else:
                                 metric.update(preds_depth, gt_depth)
@@ -1369,7 +1613,7 @@ class Trainer(object):
                         save_path_raydrop = os.path.join(
                             self.workspace,
                             "validation",
-                            f"{name}_{self.local_step:04d}_rarydrop.png",
+                            f"{name}_{self.local_step:04d}_raydrop.png",
                         )
                         save_path_intensity = os.path.join(
                             self.workspace,
@@ -1387,32 +1631,23 @@ class Trainer(object):
                         pred_intensity = (pred_intensity * 255).astype(np.uint8)
 
                         pred_raydrop = preds_raydrop[0].detach().cpu().numpy()
-                        pred_raydrop = (np.where(pred_raydrop > 0.5, 1.0, 0.0)).reshape(
-                            loader._data.H_lidar, loader._data.W_lidar
-                        )
-                        pred_raydrop = (pred_raydrop * 255).astype(np.uint8)
+                        valid_indices = loader.dataset.valid_indices
+                        H_lidar = loader.dataset.H_lidar
+                        W_lidar = loader.dataset.W_lidar
+
+                        pred_raydrop_img = np.zeros((H_lidar, W_lidar), dtype=np.uint8)
+                        pred_raydrop_bin = (pred_raydrop > 0.5).astype(np.uint8) * 255
+                        for i, (h, w) in enumerate(valid_indices):
+                            pred_raydrop_img[h, w] = pred_raydrop_bin[i]
 
                         pred_depth = preds_depth[0].detach().cpu().numpy()
-                        pred_lidar = pano_to_lidar(
-                            pred_depth / self.opt.scale, loader._data.intrinsics_lidar
-                        )
                         pred_depth = (pred_depth * 255).astype(np.uint8)
-                        # pred_depth = (pred_depth / self.opt.scale).astype(np.uint8)
 
-                        # cv2.imwrite(save_path, cv2.cvtColor(pred, cv2.COLOR_RGB2BGR))
-                        cv2.imwrite(save_path_raydrop, pred_raydrop)
+                        cv2.imwrite(save_path_raydrop, pred_raydrop_img)
                         cv2.imwrite(
                             save_path_intensity, cv2.applyColorMap(pred_intensity, 1)
                         )
                         cv2.imwrite(save_path_depth, cv2.applyColorMap(pred_depth, 9))
-                        np.save(
-                            os.path.join(
-                                self.workspace,
-                                "validation",
-                                f"{name}_{self.local_step:04d}_lidar.npy",
-                            ),
-                            pred_lidar,
-                        )
 
                     pbar.set_description(
                         f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})"
@@ -1425,15 +1660,12 @@ class Trainer(object):
         if self.local_rank == 0:
             pbar.close()
             if len(self.depth_metrics) > 0:
-                # result = self.metrics[0].measure()
-                result = self.depth_metrics[-1].measure()[0]  # hard code
+                result = self.depth_metrics[-1].measure()[0]
                 self.stats["results"].append(
                     result if self.best_mode == "min" else -result
-                )  # if max mode, use -result
+                )
             else:
-                self.stats["results"].append(
-                    average_loss
-                )  # if no metric, choose best by min loss
+                self.stats["results"].append(average_loss)
 
             for metric in self.depth_metrics:
                 self.log(metric.report(), style="blue")

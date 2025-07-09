@@ -161,7 +161,8 @@ class NeRFNetwork(NeRFRenderer):
 
     def density(self, x):
         # x: [N, 3], in [-bound, bound]
-
+        x = x.to(next(self.encoder.parameters()).device)
+         # Ensure x is on the same device as the encoder
         x = self.encoder(x, bound=self.bound)
         h = x
         for l in range(self.num_layers):
@@ -196,6 +197,45 @@ class NeRFNetwork(NeRFRenderer):
         return rgbs
 
     # allow masked inference
+    # def color(self, x, d, cal_lidar_color=False, mask=None, geo_feat=None, **kwargs):
+    #     # x: [N, 3] in [-bound, bound]
+    #     # mask: [N,], bool, indicates where we actually needs to compute rgb.
+
+    #     if mask is not None:
+    #         rgbs = torch.zeros(
+    #             mask.shape[0], self.out_dim, dtype=x.dtype, device=x.device
+    #         )  # [N, 3]
+    #         # in case of empty mask
+    #         if not mask.any():
+    #             return rgbs
+    #         x = x[mask]
+    #         d = d[mask]
+    #         geo_feat = geo_feat[mask]
+
+    #     if cal_lidar_color:
+    #         d = self.encoder_lidar_dir(d)
+    #         h = torch.cat([d, geo_feat], dim=-1)
+    #         for l in range(self.num_layers_color):
+    #             h = self.lidar_color_net[l](h)
+    #             if l != self.num_layers_color - 1:
+    #                 h = F.relu(h, inplace=True)
+    #     else:
+    #         d = self.encoder_dir(d)
+    #         h = torch.cat([d, geo_feat], dim=-1)
+    #         for l in range(self.num_layers_color):
+    #             h = self.color_net[l](h)
+    #             if l != self.num_layers_color - 1:
+    #                 h = F.relu(h, inplace=True)
+
+    #     # sigmoid activation for rgb
+    #     h = torch.sigmoid(h)
+
+    #     if mask is not None:
+    #         rgbs[mask] = h.to(rgbs.dtype)  # fp16 --> fp32
+    #     else:
+    #         rgbs = h
+
+    #     return rgbs
     def color(self, x, d, cal_lidar_color=False, mask=None, geo_feat=None, **kwargs):
         # x: [N, 3] in [-bound, bound]
         # mask: [N,], bool, indicates where we actually needs to compute rgb.
@@ -207,12 +247,13 @@ class NeRFNetwork(NeRFRenderer):
             # in case of empty mask
             if not mask.any():
                 return rgbs
-            x = x[mask]
-            d = d[mask]
-            geo_feat = geo_feat[mask]
+            x = x[mask].to(x.device)  # optional, should already match
+            d = d[mask].to(x.device)
+            geo_feat = geo_feat[mask].to(x.device)
 
         if cal_lidar_color:
             d = self.encoder_lidar_dir(d)
+            geo_feat = geo_feat.to(d.device)
             h = torch.cat([d, geo_feat], dim=-1)
             for l in range(self.num_layers_color):
                 h = self.lidar_color_net[l](h)
@@ -220,6 +261,7 @@ class NeRFNetwork(NeRFRenderer):
                     h = F.relu(h, inplace=True)
         else:
             d = self.encoder_dir(d)
+            geo_feat = geo_feat.to(d.device)
             h = torch.cat([d, geo_feat], dim=-1)
             for l in range(self.num_layers_color):
                 h = self.color_net[l](h)
@@ -230,7 +272,8 @@ class NeRFNetwork(NeRFRenderer):
         h = torch.sigmoid(h)
 
         if mask is not None:
-            rgbs[mask] = h.to(rgbs.dtype)  # fp16 --> fp32
+            mask = mask.to(rgbs.device)
+            rgbs[mask] = h.to(rgbs.dtype).to(rgbs.device)
         else:
             rgbs = h
 

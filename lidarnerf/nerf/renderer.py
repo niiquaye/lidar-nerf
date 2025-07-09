@@ -164,6 +164,7 @@ class NeRFRenderer(nn.Module):
         xyzs = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * z_vals.unsqueeze(
             -1
         )  # [N, 1, 3] * [N, T, 1] -> [N, T, 3]
+        aabb = aabb.to(xyzs.device)
         xyzs = torch.min(torch.max(xyzs, aabb[:3]), aabb[3:])  # a manual clip.
 
         # plot_pointcloud(xyzs.reshape(-1, 3).detach().cpu().numpy())
@@ -174,6 +175,9 @@ class NeRFRenderer(nn.Module):
         # sigmas = density_outputs['sigma'].view(N, num_steps) # [N, T]
         for k, v in density_outputs.items():
             density_outputs[k] = v.view(N, num_steps, -1)
+
+        for k in density_outputs:
+            density_outputs[k] = density_outputs[k].to(device)
 
         # upsample z_vals (nerf-like)
         if upsample_steps > 0:
@@ -223,6 +227,7 @@ class NeRFRenderer(nn.Module):
             )
 
             for k in density_outputs:
+                new_density_outputs[k] = new_density_outputs[k].to(density_outputs[k].device)  # Ensure same device
                 tmp_output = torch.cat(
                     [density_outputs[k], new_density_outputs[k]], dim=1
                 )

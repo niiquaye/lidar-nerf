@@ -1,10 +1,11 @@
 import numpy as np
+import torch
 from torch.utils.data import Dataset
-
 import os
 import glob
 
-# merges all .xyz files for a tree in a directory - will come in handy later
+# merges all .xyz files for a tree in a directory
+
 def load_xyz_files_from_directory(directory_path):
     all_points = []
     xyz_files = sorted(glob.glob(os.path.join(directory_path, "*.xyz")))
@@ -15,10 +16,8 @@ def load_xyz_files_from_directory(directory_path):
         raise ValueError(f"No .xyz files found in directory: {directory_path}")
     return np.concatenate(all_points, axis=0)
 
-
 def load_xyz_file(file_path):
     return np.loadtxt(file_path)  # shape: (N, 3)
-
 
 def get_lidar_rays_from_xyz(points, H=64, W=512, fov_up=30.0, fov_down=-10.0):
     x, y, z = points[:, 0], points[:, 1], points[:, 2]
@@ -46,7 +45,6 @@ def get_lidar_rays_from_xyz(points, H=64, W=512, fov_up=30.0, fov_down=-10.0):
 
     return xyz_image, range_image, mask
 
-
 class TreePointCloudDataset(Dataset):
     def __init__(self, xyz_path, H=64, W=512):
         self.points = load_xyz_file(xyz_path)
@@ -55,27 +53,33 @@ class TreePointCloudDataset(Dataset):
         )
         self.H, self.W = self.range_image.shape
         self.directions = self.compute_directions()
+        self.origins = np.zeros((self.H, self.W, 3))  # Assume LiDAR origin at (0,0,0)
+        self.valid_indices = np.argwhere(self.mask)
+
+        self.H_lidar = self.H
+        self.W_lidar = self.W
 
     def compute_directions(self):
         directions = np.zeros((self.H, self.W, 3))
         for h in range(self.H):
             for w in range(self.W):
-                if self.mask[h, w]:
-                    point = self.xyz_image[h, w]
-                    norm = np.linalg.norm(point)
-                    directions[h, w] = point / norm if norm > 0 else point
+                point = self.xyz_image[h, w]
+                direction = point / (np.linalg.norm(point) + 1e-6)
+                directions[h, w] = direction
         return directions
 
     def __len__(self):
-        return np.sum(self.mask)
+        return len(self.valid_indices)
 
     def __getitem__(self, idx):
-        valid_indices = np.argwhere(self.mask)
-        h, w = valid_indices[idx]
-        return {
-            "origin": np.array([0.0, 0.0, 0.0], dtype=np.float32),
-            "direction": self.directions[h, w].astype(np.float32),
-            "distance": self.range_image[h, w].astype(np.float32),
-            "intensity": 1.0,  # dummy value
-            "ray_drop": 0.0     # dummy value
+        h, w = self.valid_indices[idx]
+        ray_o = self.origins[h, w]  # Typically [0, 0, 0]
+        ray_d = self.directions[h, w]
+        point = self.xyz_image[h, w]
+
+        sample = {
+            "rays_o_lidar": torch.from_numpy(ray_o).float(),
+            "rays_d_lidar": torch.from_numpy(ray_d).float(),
+            "images_lidar": torch.from_numpy(point).float()  # Dummy target = 3D point itself
         }
+        return sample

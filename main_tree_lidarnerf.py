@@ -13,12 +13,18 @@ from lidarnerf.nerf.utils import (
 )
 
 
-# def collate_fn(batch):
-#     out = {}
-#     for key in batch[0]:
-#         out[key] = torch.stack([torch.tensor(b[key]) for b in batch])
-#     return out
-# dataloader = DataLoader(dataset, batch_size=64, shuffle=True, collate_fn=collate_fn)
+def lidar_collate_fn(batch):
+    rays_o = torch.stack([item["rays_o_lidar"] for item in batch], dim=0)  # [N, 3]
+    rays_d = torch.stack([item["rays_d_lidar"] for item in batch], dim=0)  # [N, 3]
+    images  = torch.stack([item["images_lidar"] for item in batch], dim=0)  # [N, 3]
+
+    # Add a batch dimension of 1: [1, N, 3]
+    return {
+        "rays_o_lidar": rays_o.unsqueeze(0),
+        "rays_d_lidar": rays_d.unsqueeze(0),
+        "images_lidar": images.unsqueeze(0)
+    }
+
 
 from dataclasses import dataclass, field
 from typing import List
@@ -108,9 +114,24 @@ batch_size = 1024
 num_epochs = 99
 lr = 1e-2
 
+loss_dict = {
+    "mse": torch.nn.MSELoss(reduction="none"),
+    "l1": torch.nn.L1Loss(reduction="none"),
+    "bce": torch.nn.BCEWithLogitsLoss(reduction="none"),
+    "huber": torch.nn.HuberLoss(reduction="none", delta=0.2 * opt.scale),
+    "cos": torch.nn.CosineSimilarity(),
+}
+
+criterion = {
+    "depth": loss_dict[opt.depth_loss],
+    "raydrop": loss_dict[opt.raydrop_loss],
+    "intensity": loss_dict[opt.intensity_loss],
+    "grad": loss_dict[opt.depth_grad_loss],
+}
+
 # ======== LOAD DATA ========
 dataset = TreePointCloudDataset(xyz_path, H=H, W=W)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=lidar_collate_fn)
 
 # bare bones model
 # ======== INITIALIZE MODEL ========
@@ -122,10 +143,10 @@ optimizer_l = lambda model: torch.optim.Adam(
             model.get_params(opt.lr), betas=(0.9, 0.99), eps=1e-15
         )
 # ======== TRAINING LOOP ========
-trainer = Trainer(model=model, opt=opt, name='lidar-tree',optimizer=optimizer_l)
+trainer = Trainer(model=model, opt=opt, name='lidar-tree',optimizer=optimizer_l, criterion=criterion)
 trainer.train(dataloader, dataloader, num_epochs)
 
 
 # ======== SAVE MODEL ========
-torch.save(model.state_dict(), "lidar_nerf_tree.pth") # will come in handy when rendering point cloud data from model
-print("Model saved as lidar_nerf_tree.pth")
+# torch.save(model.state_dict(), "lidar_nerf_tree.pth") # will come in handy when rendering point cloud data from model
+# print("Model saved as lidar_nerf_tree.pth")
