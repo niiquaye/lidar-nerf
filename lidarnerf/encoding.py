@@ -65,18 +65,24 @@ def get_encoder(
 
     elif encoding == "frequency":
         # encoder = FreqEncoder(input_dim=input_dim, max_freq_log2=multires-1, N_freqs=multires, log_sampling=True)
-        from freqencoder import FreqEncoder
+        import sys
+        sys.path.append("/home/niiquaye/lidar-nerf/lidarnerf")
+        from freqencoder.freq import FreqEncoder
 
         encoder = FreqEncoder(input_dim=input_dim, degree=multires)
 
     elif encoding == "sphere_harmonics":
-        from shencoder import SHEncoder
+        # from shencoder import SHEncoder
+        import sys
+        sys.path.append("/home/niiquaye/lidar-nerf/lidarnerf")
+        from shencoder.sphere_harmonics import SHEncoder
 
         encoder = SHEncoder(input_dim=input_dim, degree=degree)
 
     elif encoding == "hashgrid":
-        from gridencoder import GridEncoder
-
+        import sys
+        sys.path.append("/home/niiquaye/lidar-nerf/lidarnerf")
+        from gridencoder.grid import GridEncoder
         encoder = GridEncoder(
             input_dim=input_dim,
             num_levels=num_levels,

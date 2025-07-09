@@ -6,6 +6,8 @@ from torch.autograd import Function
 from torch.cuda.amp import custom_bwd, custom_fwd
 
 try:
+    import sys, os
+    sys.path.insert(0, os.path.dirname(__file__))  # force local module
     import _gridencoder as _backend
 except ImportError:
     from .backend import _backend

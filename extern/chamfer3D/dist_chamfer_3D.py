@@ -28,6 +28,8 @@ if not chamfer_found:
             "/".join(os.path.abspath(__file__).split("/")[:-1] + ["chamfer3D.cu"]),
         ],
         build_directory=build_path,
+        extra_include_paths=["/home/niiquaye/cuda-11.8/include"],
+        extra_ldflags=["-L/home/niiquaye/cuda-11.8/lib64", "-lcudart"],
     )
     print(f"Loaded jitted library {chamfer_3D.__file__}")
 else:
