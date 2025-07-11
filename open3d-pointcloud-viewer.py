@@ -15,12 +15,13 @@ def create_point_cloud(points, color):
     pcd.paint_uniform_color(color)
     return pcd
 
-def visualize_point_clouds(file1, file2):
+def visualize_point_clouds(file1, file2, no_offset):
     # Load point clouds
     points1 = load_xyz_file(file1)
     points2 = load_xyz_file(file2)
 
-    points2 += np.array([2.0, 0, 0])  # shift 2 units in X direction so clouds dont overlap
+    if not no_offset:
+        points2 += np.array([2.0, 0, 0])  # shift 2 units in X direction so clouds dont overlap
 
     # Assign distinct colors (RGB in [0,1])
     pcd1 = create_point_cloud(points1, color=[1.0, 0.0, 0.0])  # Red
@@ -42,6 +43,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Render two point clouds from .xyz files")
     parser.add_argument("file1", type=str, help="Path to first .xyz file")
     parser.add_argument("file2", type=str, help="Path to second .xyz file")
+    parser.add_argument("--no-offset", action="store_true", help="Do not separate clouds; allow them to overlap")
     args = parser.parse_args()
 
-    visualize_point_clouds(args.file1, args.file2)
+    visualize_point_clouds(args.file1, args.file2, args.no_offset)
