@@ -1,3 +1,66 @@
+
+---
+
+# LiDAR-NeRF for Point Cloud Upsampling
+
+This repository is a **modified fork** of Tang et al. (2023) LiDAR-NeRF, adapted to **train and perform generative upsampling directly on raw `.xyz` point cloud data** instead of LiDAR range images.
+
+## 🚀 Key Modifications
+
+* Added **`tree_dataset.py`**:
+
+  * Loads unstructured `.xyz` point cloud files.
+  * Handles batching without requiring LiDAR poses or range images.
+* Updated **`main_tree_lidarnerf.py`**:
+
+  * Trains the modified LiDAR-NeRF model using point cloud data as input.
+  * Downsampled sparse inputs (e.g., 256 points) are used to learn a continuous volumetric field.
+* Added **`lidar-nerf-upsample.py`**:
+
+  * Runs inference to generate upsampled point clouds by querying the trained model.
+  * Produces higher-density point clouds (e.g., 1024 points) consistent with the learned geometry.
+* Added **`emd-f1-score.py`**:
+
+  * Computes **Earth Mover’s Distance (EMD)** and **F-score, Precision, Recall** between upsampled outputs and downsampled ground truth.
+
+## 📂 Workflow
+**Setup** `lidarnerf` Conda Environment by looking at instructions further down the readme before proceeding
+
+1. **Prepare Data**
+
+   * Place your `.xyz` point cloud files in the dataset directory.
+
+2. **Train**
+
+   ```bash
+   python main_tree_lidarnerf.py
+   ```
+
+3. **Upsample**
+
+   ```bash
+   python lidar-nerf-upsample.py 
+   ```
+
+4. **Evaluate**
+
+   ```bash
+   python emd-f1-score.py --pc1 upsampled.xyz --pc2 ground_truth.xyz
+   ```
+
+## ⚙️ Compilation Notes
+
+The repository contains **`setup.py`** build scripts for different NeRF modules (e.g., grid encoder, frequency encoder).
+If running on an architecture **other than Ubuntu 20.04**, these will **probably** need to be compiled manually:
+
+```bash
+python setup.py build_ext --inplace
+```
+
+---
+
+
+
 <p align="center">
    <img src="./assets/lidar_nerf_logo_640.png" width="480" />
 </p>
